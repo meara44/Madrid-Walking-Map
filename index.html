@@ -35,6 +35,13 @@
     border-radius: 10px; padding: 10px 12px; margin-bottom: 16px; font-size: 13px; color: #8A3D1F;
   }
   .accuracy { font-size: 12px; color: #8A8377; margin-bottom: 16px; }
+
+  .legend {
+    display: flex; flex-wrap: wrap; gap: 10px; margin-bottom: 14px; font-size: 12px; color: #4A453D;
+  }
+  .legend-item { display: flex; align-items: center; gap: 5px; }
+  .legend-dot { width: 10px; height: 10px; border-radius: 50%; display: inline-block; }
+
   .target-card {
     background: #1F3A34; color: #F4EFE6; border-radius: 16px; padding: 18px 20px; margin-bottom: 18px; display: none;
   }
@@ -55,10 +62,11 @@
   }
   .place-btn.selected { background: #EFE7DA; border: 1.5px solid #B5623A; }
   .icon-circle {
-    width: 34px; height: 34px; border-radius: 50%; background: #F4EFE6; color: #B5623A;
-    display: flex; align-items: center; justify-content: center; flex-shrink: 0; font-size: 16px;
+    width: 34px; height: 34px; border-radius: 50%;
+    display: flex; align-items: center; justify-content: center; flex-shrink: 0; font-size: 15px;
+    color: #FFFFFF; font-weight: 700;
   }
-  .icon-circle.visited { background: #639922; color: #EAF3DE; }
+  .icon-circle.visited { background: #639922 !important; color: #EAF3DE; }
   .place-info { flex: 1; min-width: 0; }
   .place-name { font-size: 14px; font-weight: 600; color: #20221F; }
   .place-tag { font-size: 12px; color: #8A8377; }
@@ -80,6 +88,8 @@
   <div class="error" id="errorBox" style="display:none;"></div>
   <div class="accuracy" id="accuracyBox" style="display:none;"></div>
 
+  <div class="legend" id="legend"></div>
+
   <div id="map"></div>
 
   <div class="target-card" id="targetCard">
@@ -98,23 +108,32 @@
 </div>
 
 <script>
+// Category -> color + icon mapping
+const CATEGORIES = {
+  hotel:     { color: "#D64545", label: "Hotel",    icon: "🏨" },
+  food:      { color: "#3B6EA5", label: "Food",     icon: "🍽️" },
+  market:    { color: "#8B5FBF", label: "Market",   icon: "🧺" },
+  shopping:  { color: "#4C9A6A", label: "Shopping", icon: "🛍️" },
+  transport: { color: "#4A4A4A", label: "Transport",icon: "🚄" },
+};
+
 const PLACES = [
-  { id: "hotel", name: "Gran Hotel Inglés", tag: "Home base", lat: 40.4159384, lng: -3.6998053 },
-  { id: "divorare", name: "Divorare", tag: "Sandwich shop", lat: 40.4222211, lng: -3.6981023 },
-  { id: "botin", name: "Restaurante Botín", tag: "Oldest restaurant in the world", lat: 40.4141933, lng: -3.7079761 },
-  { id: "sanmiguel", name: "Mercado San Miguel", tag: "Market", lat: 40.4153794, lng: -3.7089697 },
-  { id: "atocha", name: "Madrid Puerta de Atocha", tag: "Train station · iryo to Barcelona 8:50", lat: 40.4064905, lng: -3.6909091 },
-  { id: "pullbear", name: "Pull & Bear", tag: "Closest to hotel", lat: 40.4203677, lng: -3.7037652 },
-  { id: "goldengoose", name: "Golden Goose", tag: "Closest to hotel", lat: 40.4300434, lng: -3.684965 },
-  { id: "vallehermoso", name: "Mercado de Vallehermoso", tag: "Market", lat: 40.4341695, lng: -3.7082257 },
-  { id: "migacana", name: "Miga Caña", tag: "In Mercado de Vallehermoso", lat: 40.434102, lng: -3.7082944 },
-  { id: "craft19", name: "Craft 19", tag: "Habanero pastrami sandwich", lat: 40.434102, lng: -3.7082944 },
-  { id: "antonmartin", name: "Mercado Antón Martín", tag: "Market", lat: 40.4114986, lng: -3.6988306 },
-  { id: "fiaschetteria", name: "Fiaschetteria", tag: "Italian, inside Mercado Antón Martín", lat: 40.4114462, lng: -3.6987942 },
-  { id: "fuencarral", name: "Calle de Fuencarral", tag: "Shopping street", lat: 40.4250746, lng: -3.7007208 },
-  { id: "salesas", name: "Las Salesas", tag: "Shopping district", lat: 40.4242183, lng: -3.6945059 },
-  { id: "malasana", name: "Malasaña", tag: "Shopping district", lat: 40.4233716, lng: -3.7077922 },
-  { id: "jbwatches", name: "JB Watches", tag: "Luxury watches", lat: 40.4357096, lng: -3.6862485 },
+  { id: "hotel", name: "Gran Hotel Inglés", tag: "Home base", category: "hotel", lat: 40.4159384, lng: -3.6998053 },
+  { id: "divorare", name: "Divorare", tag: "Sandwich shop", category: "food", lat: 40.4222211, lng: -3.6981023 },
+  { id: "botin", name: "Restaurante Botín", tag: "Oldest restaurant in the world", category: "food", lat: 40.4141933, lng: -3.7079761 },
+  { id: "sanmiguel", name: "Mercado San Miguel", tag: "Market", category: "market", lat: 40.4153794, lng: -3.7089697 },
+  { id: "atocha", name: "Madrid Puerta de Atocha", tag: "Train station · iryo to Barcelona 8:50", category: "transport", lat: 40.4064905, lng: -3.6909091 },
+  { id: "pullbear", name: "Pull & Bear", tag: "Closest to hotel", category: "shopping", lat: 40.4203677, lng: -3.7037652 },
+  { id: "goldengoose", name: "Golden Goose", tag: "Closest to hotel", category: "shopping", lat: 40.4300434, lng: -3.684965 },
+  { id: "vallehermoso", name: "Mercado de Vallehermoso", tag: "Market", category: "market", lat: 40.4341695, lng: -3.7082257 },
+  { id: "migacana", name: "Miga Caña", tag: "In Mercado de Vallehermoso", category: "food", lat: 40.434102, lng: -3.7082944 },
+  { id: "craft19", name: "Craft 19", tag: "Habanero pastrami sandwich", category: "food", lat: 40.434102, lng: -3.7082944 },
+  { id: "antonmartin", name: "Mercado Antón Martín", tag: "Market", category: "market", lat: 40.4114986, lng: -3.6988306 },
+  { id: "fiaschetteria", name: "Fiaschetteria", tag: "Italian, inside Mercado Antón Martín", category: "food", lat: 40.4114462, lng: -3.6987942 },
+  { id: "fuencarral", name: "Calle de Fuencarral", tag: "Shopping street", category: "shopping", lat: 40.4250746, lng: -3.7007208 },
+  { id: "salesas", name: "Las Salesas", tag: "Shopping district", category: "shopping", lat: 40.4242183, lng: -3.6945059 },
+  { id: "malasana", name: "Malasaña", tag: "Shopping district", category: "shopping", lat: 40.4233716, lng: -3.7077922 },
+  { id: "jbwatches", name: "JB Watches", tag: "Luxury watches", category: "shopping", lat: 40.4357096, lng: -3.6862485 },
 ];
 
 let pos = null;
@@ -123,6 +142,22 @@ let selectedId = null;
 const visited = {};
 const prevDist = {};
 const trend = {};
+
+function catColor(place) {
+  return (CATEGORIES[place.category] || {}).color || "#B5623A";
+}
+function catIcon(place) {
+  return (CATEGORIES[place.category] || {}).icon || "📍";
+}
+
+// Build legend
+const legendEl = document.getElementById("legend");
+Object.entries(CATEGORIES).forEach(([key, cfg]) => {
+  const item = document.createElement("div");
+  item.className = "legend-item";
+  item.innerHTML = `<span class="legend-dot" style="background:${cfg.color}"></span>${cfg.label}`;
+  legendEl.appendChild(item);
+});
 
 const map = L.map('map', { zoomControl: true }).setView([40.4193, -3.7013], 14);
 L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
@@ -133,7 +168,7 @@ L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
 const placeMarkers = {};
 PLACES.forEach(place => {
   const marker = L.circleMarker([place.lat, place.lng], {
-    radius: 7, color: '#B5623A', fillColor: '#B5623A', fillOpacity: 0.9, weight: 2
+    radius: 7, color: catColor(place), fillColor: catColor(place), fillOpacity: 0.9, weight: 2
   }).addTo(map);
   marker.bindPopup(`<b>${place.name}</b><br>${place.tag}`);
   marker.on('click', () => { selectedId = place.id; lastRouteFetchPos = null; render(); drawRoute(true); });
@@ -177,7 +212,7 @@ async function drawRoute(force) {
     if (myToken !== routeFetchToken) return;
     if (data.routes && data.routes[0]) {
       const coords = data.routes[0].geometry.coordinates.map(c => [c[1], c[0]]);
-      const newLine = L.polyline(coords, { color: '#B5623A', weight: 4, opacity: 0.85 }).addTo(map);
+      const newLine = L.polyline(coords, { color: catColor(target), weight: 4, opacity: 0.85 }).addTo(map);
       if (routeLine) map.removeLayer(routeLine);
       routeLine = newLine;
       if (force) map.fitBounds(routeLine.getBounds(), { padding: [30, 30] });
@@ -220,7 +255,6 @@ function updateTrends() {
 }
 
 function render() {
-  const errorBox = document.getElementById("errorBox");
   const accuracyBox = document.getElementById("accuracyBox");
 
   if (pos) {
@@ -262,6 +296,7 @@ function render() {
     const t = trend[place.id];
     const isVisited = visited[place.id];
     const isSelected = place.id === selectedId;
+    const color = catColor(place);
 
     const btn = document.createElement("button");
     btn.className = "place-btn" + (isSelected ? " selected" : "");
@@ -273,7 +308,7 @@ function render() {
     };
 
     btn.innerHTML = `
-      <div class="icon-circle${isVisited ? " visited" : ""}">${isVisited ? "✓" : "📍"}</div>
+      <div class="icon-circle${isVisited ? " visited" : ""}" style="${isVisited ? "" : `background:${color};`}">${isVisited ? "✓" : catIcon(place)}</div>
       <div class="place-info">
         <div class="place-name">${place.name}</div>
         <div class="place-tag">${place.tag}</div>
