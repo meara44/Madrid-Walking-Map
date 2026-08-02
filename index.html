@@ -58,6 +58,284 @@
     width: 34px; height: 34px; border-radius: 50%; background: #F4EFE6; color: #B5623A;
     display: flex; align-items: center; justify-content: center; flex-shrink: 0; font-size: 16px;
   }
-  .icon-circl
-  
+  .icon-circle.visited { background: #639922; color: #EAF3DE; }
+  .place-info { flex: 1; min-width: 0; }
+  .place-name { font-size: 14px; font-weight: 600; color: #20221F; }
+  .place-tag { font-size: 12px; color: #8A8377; }
+  .place-dist { text-align: right; flex-shrink: 0; }
+  .place-dist .val { font-size: 14px; font-weight: 700; color: #20221F; }
+  .place-dist .closer { font-size: 11px; color: #3B6D11; }
+  .place-dist .farther { font-size: 11px; color: #993C1D; }
+  .footer-note { font-size: 11px; color: #A6A092; text-align: center; margin-top: 20px; padding-bottom: 8px; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="eyebrow">Madrid</div>
+  <h1>Walking tracker</h1>
 
+  <button class="btn-start" id="startBtn">Start tracking my walk</button>
+  <button class="btn-stop" id="stopBtn" style="display:none;">Tracking live — tap to stop</button>
+
+  <div class="error" id="errorBox" style="display:none;"></div>
+  <div class="accuracy" id="accuracyBox" style="display:none;"></div>
+
+  <div id="map"></div>
+
+  <div class="target-card" id="targetCard">
+    <div class="label">Walking to</div>
+    <div class="name" id="targetName"></div>
+    <div class="distrow" id="targetDistRow">
+      <span class="distval" id="targetDist"></span>
+      <span id="targetTrend"></span>
+    </div>
+    <button class="clear-btn" id="clearTargetBtn">Clear target</button>
+  </div>
+
+  <div class="list" id="placeList"></div>
+
+  <div class="footer-note">Distances shown are straight-line; the route on the map follows actual streets. A pin marks "arrived" within 25 m.</div>
+</div>
+
+<script>
+const PLACES = [
+  { id: "hotel", name: "Gran Hotel Inglés", tag: "Home base", lat: 40.4159384, lng: -3.6998053 },
+  { id: "divorare", name: "Divorare", tag: "Sandwich shop", lat: 40.4222211, lng: -3.6981023 },
+  { id: "botin", name: "Restaurante Botín", tag: "Oldest restaurant in the world", lat: 40.4141933, lng: -3.7079761 },
+  { id: "sanmiguel", name: "Mercado San Miguel", tag: "Market", lat: 40.4153794, lng: -3.7089697 },
+  { id: "atocha", name: "Madrid Puerta de Atocha", tag: "Train station · iryo to Barcelona 8:50", lat: 40.4064905, lng: -3.6909091 },
+  { id: "pullbear", name: "Pull & Bear", tag: "Closest to hotel", lat: 40.4203677, lng: -3.7037652 },
+  { id: "goldengoose", name: "Golden Goose", tag: "Closest to hotel", lat: 40.4300434, lng: -3.684965 },
+  { id: "vallehermoso", name: "Mercado de Vallehermoso", tag: "Market", lat: 40.4341695, lng: -3.7082257 },
+  { id: "migacana", name: "Miga Caña", tag: "In Mercado de Vallehermoso", lat: 40.434102, lng: -3.7082944 },
+  { id: "craft19", name: "Craft 19", tag: "Habanero pastrami sandwich", lat: 40.434102, lng: -3.7082944 },
+  { id: "antonmartin", name: "Mercado Antón Martín", tag: "Market", lat: 40.4114986, lng: -3.6988306 },
+  { id: "fiaschetteria", name: "Fiaschetteria", tag: "Italian, inside Mercado Antón Martín", lat: 40.4114462, lng: -3.6987942 },
+  { id: "fuencarral", name: "Calle de Fuencarral", tag: "Shopping street", lat: 40.4250746, lng: -3.7007208 },
+  { id: "salesas", name: "Las Salesas", tag: "Shopping district", lat: 40.4242183, lng: -3.6945059 },
+  { id: "malasana", name: "Malasaña", tag: "Shopping district", lat: 40.4233716, lng: -3.7077922 },
+  { id: "jbwatches", name: "JB Watches", tag: "Luxury watches", lat: 40.4357096, lng: -3.6862485 },
+];
+
+let pos = null;
+let watchId = null;
+let selectedId = null;
+const visited = {};
+const prevDist = {};
+const trend = {};
+
+const map = L.map('map', { zoomControl: true }).setView([40.4193, -3.7013], 14);
+L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+  maxZoom: 19,
+  attribution: '&copy; OpenStreetMap contributors'
+}).addTo(map);
+
+const placeMarkers = {};
+PLACES.forEach(place => {
+  const marker = L.circleMarker([place.lat, place.lng], {
+    radius: 7, color: '#B5623A', fillColor: '#B5623A', fillOpacity: 0.9, weight: 2
+  }).addTo(map);
+  marker.bindPopup(`<b>${place.name}</b><br>${place.tag}`);
+  marker.on('click', () => { selectedId = place.id; lastRouteFetchPos = null; render(); drawRoute(true); });
+  placeMarkers[place.id] = marker;
+});
+
+let youMarker = null;
+let routeLine = null;
+let routeFetchToken = 0;
+let lastRouteFetchPos = null;
+
+function updateYouMarker() {
+  if (!pos) return;
+  if (!youMarker) {
+    youMarker = L.circleMarker([pos.lat, pos.lng], {
+      radius: 8, color: '#1F3A34', fillColor: '#1F3A34', fillOpacity: 1, weight: 3
+    }).addTo(map);
+    youMarker.bindPopup("You are here");
+    map.setView([pos.lat, pos.lng], 16);
+  } else {
+    youMarker.setLatLng([pos.lat, pos.lng]);
+  }
+}
+
+async function drawRoute(force) {
+  if (!pos || !selectedId) {
+    if (routeLine) { map.removeLayer(routeLine); routeLine = null; }
+    return;
+  }
+  if (!force && lastRouteFetchPos) {
+    const moved = haversine(pos.lat, pos.lng, lastRouteFetchPos.lat, lastRouteFetchPos.lng);
+    if (moved < 25) return;
+  }
+  lastRouteFetchPos = { lat: pos.lat, lng: pos.lng };
+  const target = PLACES.find(p => p.id === selectedId);
+  const myToken = ++routeFetchToken;
+  try {
+    const url = `https://router.project-osrm.org/route/v1/foot/${pos.lng},${pos.lat};${target.lng},${target.lat}?overview=full&geometries=geojson`;
+    const res = await fetch(url);
+    const data = await res.json();
+    if (myToken !== routeFetchToken) return;
+    if (data.routes && data.routes[0]) {
+      const coords = data.routes[0].geometry.coordinates.map(c => [c[1], c[0]]);
+      const newLine = L.polyline(coords, { color: '#B5623A', weight: 4, opacity: 0.85 }).addTo(map);
+      if (routeLine) map.removeLayer(routeLine);
+      routeLine = newLine;
+      if (force) map.fitBounds(routeLine.getBounds(), { padding: [30, 30] });
+    }
+  } catch (e) {
+  }
+}
+
+function haversine(lat1, lon1, lat2, lon2) {
+  const R = 6371000;
+  const toRad = d => d * Math.PI / 180;
+  const dLat = toRad(lat2 - lat1);
+  const dLon = toRad(lon2 - lon1);
+  const a = Math.sin(dLat/2)**2 + Math.cos(toRad(lat1))*Math.cos(toRad(lat2))*Math.sin(dLon/2)**2;
+  return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+}
+
+function fmtDist(m) {
+  if (m < 1000) return Math.round(m) + " m";
+  return (m/1000).toFixed(2) + " km";
+}
+
+function distFor(place) {
+  if (!pos) return null;
+  return haversine(pos.lat, pos.lng, place.lat, place.lng);
+}
+
+function updateTrends() {
+  PLACES.forEach(place => {
+    const d = distFor(place);
+    if (d === null) return;
+    const prev = prevDist[place.id];
+    if (prev !== undefined) {
+      if (d < prev - 3) trend[place.id] = "closer";
+      else if (d > prev + 3) trend[place.id] = "farther";
+    }
+    prevDist[place.id] = d;
+    if (d < 25 && !visited[place.id]) visited[place.id] = true;
+  });
+}
+
+function render() {
+  const errorBox = document.getElementById("errorBox");
+  const accuracyBox = document.getElementById("accuracyBox");
+
+  if (pos) {
+    accuracyBox.style.display = "block";
+    accuracyBox.textContent = "Location accuracy ± " + Math.round(pos.accuracy) + " m";
+  }
+
+  const targetCard = document.getElementById("targetCard");
+  if (selectedId) {
+    const selected = PLACES.find(p => p.id === selectedId);
+    targetCard.style.display = "block";
+    document.getElementById("targetName").textContent = selected.name;
+    const d = distFor(selected);
+    const t = trend[selected.id];
+    if (d !== null) {
+      document.getElementById("targetDist").textContent = fmtDist(d);
+      let trendHtml = "";
+      if (t === "closer") trendHtml = '<span class="trend-closer">↓ getting closer</span>';
+      if (t === "farther") trendHtml = '<span class="trend-farther">↑ moving away</span>';
+      document.getElementById("targetTrend").innerHTML = trendHtml;
+    } else {
+      document.getElementById("targetDist").textContent = "Waiting for your location…";
+      document.getElementById("targetTrend").innerHTML = "";
+    }
+  } else {
+    targetCard.style.display = "none";
+  }
+
+  const sorted = [...PLACES].sort((a, b) => {
+    const da = distFor(a), db = distFor(b);
+    if (da === null || db === null) return 0;
+    return da - db;
+  });
+
+  const list = document.getElementById("placeList");
+  list.innerHTML = "";
+  sorted.forEach(place => {
+    const d = distFor(place);
+    const t = trend[place.id];
+    const isVisited = visited[place.id];
+    const isSelected = place.id === selectedId;
+
+    const btn = document.createElement("button");
+    btn.className = "place-btn" + (isSelected ? " selected" : "");
+    btn.onclick = () => {
+      selectedId = (place.id === selectedId) ? null : place.id;
+      lastRouteFetchPos = null;
+      render();
+      drawRoute(true);
+    };
+
+    btn.innerHTML = `
+      <div class="icon-circle${isVisited ? " visited" : ""}">${isVisited ? "✓" : "📍"}</div>
+      <div class="place-info">
+        <div class="place-name">${place.name}</div>
+        <div class="place-tag">${place.tag}</div>
+      </div>
+      <div class="place-dist">
+        <div class="val">${d !== null ? fmtDist(d) : "—"}</div>
+        ${t === "closer" ? '<div class="closer">↓ closer</div>' : ""}
+        ${t === "farther" ? '<div class="farther">↑ farther</div>' : ""}
+      </div>
+    `;
+    list.appendChild(btn);
+  });
+}
+
+document.getElementById("clearTargetBtn").onclick = () => {
+  selectedId = null;
+  render();
+  drawRoute(true);
+};
+
+document.getElementById("startBtn").onclick = () => {
+  if (!navigator.geolocation) {
+    const errorBox = document.getElementById("errorBox");
+    errorBox.style.display = "flex";
+    errorBox.textContent = "Location isn't available on this device or browser.";
+    return;
+  }
+  document.getElementById("startBtn").style.display = "none";
+  document.getElementById("stopBtn").style.display = "flex";
+  document.getElementById("errorBox").style.display = "none";
+
+  watchId = navigator.geolocation.watchPosition(
+    (p) => {
+      const firstFix = !pos;
+      pos = { lat: p.coords.latitude, lng: p.coords.longitude, accuracy: p.coords.accuracy };
+      document.getElementById("errorBox").style.display = "none";
+      updateTrends();
+      render();
+      updateYouMarker();
+      if (selectedId) drawRoute(firstFix);
+    },
+    (e) => {
+      const errorBox = document.getElementById("errorBox");
+      errorBox.style.display = "flex";
+      errorBox.textContent = (e.message || "Couldn't get your location.") + " Location access needs to be allowed in your browser, and this page needs to stay open while you walk.";
+      document.getElementById("startBtn").style.display = "flex";
+      document.getElementById("stopBtn").style.display = "none";
+    },
+    { enableHighAccuracy: true, maximumAge: 2000, timeout: 15000 }
+  );
+};
+
+document.getElementById("stopBtn").onclick = () => {
+  if (watchId !== null) {
+    navigator.geolocation.clearWatch(watchId);
+    watchId = null;
+  }
+  document.getElementById("startBtn").style.display = "flex";
+  document.getElementById("stopBtn").style.display = "none";
+};
+
+render();
+</script>
+</body>
+</html>
